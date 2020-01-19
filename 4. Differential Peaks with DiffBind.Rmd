@@ -1,0 +1,743 @@
+---
+title: "4. Differential Peaks with DiffBind"
+output: html_notebook
+---
+
+```{r Loading all required libraries and packages}
+library("TxDb.Hsapiens.UCSC.hg38.knownGene", lib.loc="~/Library/R/3.5/library")
+library("GenomicFeatures", lib.loc="/Library/Frameworks/R.framework/Versions/3.5/Resources/library")
+library("BiocParallel", lib.loc="~/Library/R/3.5/library")
+library("BiocGenerics", lib.loc="~/Library/R/3.5/library")
+library("GenomicRanges", lib.loc="~/Library/R/3.5/library")
+library("ChIPseeker")
+library("ChIPpeakAnno", lib.loc="~/Library/R/3.5/library")
+library(org.Hs.eg.db)
+library("ReactomePA", lib.loc="~/Library/R/3.5/library")
+library(clusterProfiler)
+library(biomaRt)
+library("IRanges", lib.loc="/Library/Frameworks/R.framework/Versions/3.5/Resources/library")
+library("DiffBind", lib.loc="~/Library/R/3.5/library")
+library("DiffBind", lib.loc="/Library/Frameworks/R.framework/Versions/3.5/Resources/library")
+library("DESeq2", lib.loc="~/Library/R/3.5/library")
+library("ggplot2", lib.loc="~/Library/R/3.5/library")
+library("Tmisc", lib.loc="~/Library/R/3.5/library")
+library(RColorBrewer)
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+#BiocManager::install("ChIPQC", version = "3.8")
+library("ChIPQC", lib.loc="~/Library/R/3.5/library")
+library("plot3Drgl", lib.loc="~/Library/R/3.5/library")
+library(rtracklayer)
+library(TxDb.Hsapiens.UCSC.hg38.knownGene)
+library("edgeR", lib.loc="~/Library/R/3.5/library")
+txdb <- TxDb.Hsapiens.UCSC.hg38.knownGene
+interesing_chrs = c("chr1","chr2","chr3","chr4","chr5","chr6","chr7","chr8","chr9","chr10"
+         ,"chr11","chr12","chr13","chr14","chr15","chr16","chr17","chr18","chr19","chr20"
+         ,"chr21","chr22","chrM","chrX","chrY")
+require(TxDb.Hsapiens.UCSC.hg38.knownGene)
+hg38 = TxDb.Hsapiens.UCSC.hg38.knownGene
+library(BiocParallel)
+register(SerialParam())
+library(Rsamtools)
+library(GenomeInfoDb)
+library(org.Hs.eg.db)
+library("DiffBind", lib.loc="~/Library/R/3.5/library")
+library("rstudioapi")
+
+```
+
+```{r Setting Directories and Samples}
+
+setwd("PATH TO DIRECTORY")
+samples = read.csv("SAMPLE SHEET NAME")
+
+setwd("/Volumes/LorettaBAnalysis/Battis/bioinfo/TrainingData2")
+samples= read.csv("COccupied_hg38_Blood_All.csv")
+
+```
+
+```{r Load Samples on to DiffBind}
+
+Replicate = samples$Replicate
+Replicate = as.numeric(Replicate)
+bamReads = samples$bamReads
+bamControl = samples$bamControl
+Tissue = samples$Tissue
+Condition = samples$Condition
+Treatment = samples$Treatment
+PeakFormat = samples$PeakFormat
+Tissue = samples$Tissue
+ControlID = samples$ControlID
+SampleID = samples$SampleID
+Factor = samples$Factor
+Peaks = samples$Peaks
+PeakCaller = samples$PeakCaller
+PeakFormat = samples$PeakFormat
+sampleSheet = data.frame(SampleID, 
+                         Tissue, 
+                         Factor, 
+                         Condition,
+                         Treatment,
+                         Replicate, 
+                         bamReads, 
+                         bamControl, 
+                         ControlID, 
+                         Peaks, 
+                         PeakCaller,
+                         PeakFormat)
+DBA= dba(sampleSheet = sampleSheet, 
+         bRemoveM = TRUE, 
+         bRemoveRandom = TRUE, 
+         config=data.frame(RunParallel=TRUE,
+                           AnalysisMethod=DBA_DESEQ2, 
+                           minQCth=30, fragmentSize=0, 
+                           bCorPlot=TRUE, th=0.05,
+                           bUsePval=FALSE), 
+         bAddCallerConsensus=TRUE, 
+         bSummarizedExperiment=FALSE, 
+         attributes = DBA_ALL_ATTRIBUTES)
+```
+
+```{r FASTQC}
+#FASTQC 
+library(TxDb.Hsapiens.UCSC.hg38.knownGene)
+hg38 = TxDb.Hsapiens.UCSC.hg38.knownGene
+
+DBA.QC = ChIPQC(experiment = sampleSheet,
+                 annotation = "hg38",
+                 blacklist ="/Users/lollie/Documents/2018/MhlangaLab/Projects/PhD/Local_Data/Genomes/hg38.blacklist.bed",
+                consensus = FALSE,
+                mapQCth = 30)
+DBA.QC.Report = ChIPQCreport(DBA.QC, 
+                   facetBy = c("Tissue","Condition"))
+QC = ChIPQC(sampleSheet, blacklist ="/Users/lollie/Documents/2018/MhlangaLab/Projects/PhD/Local_Data/Genomes/hg38.blacklist.bed")
+QC.Report = ChIPQCreport(QC, 
+                   facetBy = c("Tissue","Condition"))
+
+QC.Cov = plotCoverageHist(QC, 
+                          facetBy = c("Tissue","Condition"))
+savePlotAsImage(file = "qc.cov.svg", 
+                format = "svg", 
+                width = 600, 
+              height = 650)
+
+QC.CC = plotCC(QC, 
+       facetBy = c("Tissue","Condition"))
+savePlotAsImage(file = "qc.cc.svg", 
+                format = "svg", 
+                width = 600, 
+                height = 650)
+sampQC.Regi = plotRegi(QC, 
+         facetBy = c("Tissue","Condition"))
+savePlotAsImage(file = "qc.regi.svg", 
+                format = "svg", 
+                width = 600, 
+                height = 650)
+QC.PeakProfile = plotPeakProfile(QC, 
+                facetBy = c("Tissue","Condition"))
+savePlotAsImage(file = "qc.peakprofile.svg", 
+                format = "svg", 
+                width = 600, 
+                height = 650)
+QC.Rap = plotRap(QC, 
+        facetBy = c("Tissue","Condition"))
+savePlotAsImage(file = "qc.rap.svg", 
+                format = "svg", 
+                width = 600, 
+                height = 650)
+plotFribl(QC, 
+          facetBy = c("Tissue","Condition"))
+savePlotAsImage(file = "qc.fribl.svg", 
+                format = "svg", 
+                width = 600, 
+                height = 650)
+QC.CorHeatmap = plotCorHeatmap(QC, 
+               facetBy = c("Tissue","Condition"))
+savePlotAsImage(file = "qc.corheatmap.svg", 
+                format = "svg", 
+                width = 600, 
+                height = 650)
+QC.Princomp = plotPrincomp(QC, 
+             facetBy = c("Tissue","Condition"))
+savePlotAsImage(file = "qc.Princomp.svg", 
+                format = "svg", 
+                width = 600, 
+                height = 650)
+```
+
+```{r Differential Peaks with DiffBind}
+#Creating DBA object
+#Analysis method; DeSeq2: Relative log expression 
+#bSubControl= T by default: the raw number of reads in the control sample (if available) will be subtracted
+
+DBA= dba(sampleSheet = sampleSheet, 
+         bRemoveM = TRUE, 
+         bRemoveRandom = TRUE, 
+         config=data.frame(RunParallel=TRUE,
+                           AnalysisMethod=DBA_DESEQ2, 
+                           minQCth=30, fragmentSize=0, 
+                           bCorPlot=TRUE, th=0.05,
+                           bUsePval=FALSE), 
+         bAddCallerConsensus=FALSE, 
+         bSummarizedExperiment=FALSE, 
+         attributes = DBA_ALL_ATTRIBUTES)
+
+savePlotAsImage(file = "dba.bCorPlot.svg", 
+                format = "svg", 
+                width = 600, 
+                height = 650)
+#plot correlation of raw peaks 
+#heatmap
+dba.map = dba.plotHeatmap(DBA, 
+                          attributes = DBA_ID, 
+                          th= 0.05, 
+                          bUsePval = FALSE, 
+                          sortFun = TRUE,
+                          correlations = TRUE, 
+                          olPlot = DBA_COR,
+                          rowSideCols = c("dark blue","dark green","dark red"),
+                          colSideCols = c("dark blue","dark green","dark red"),
+                          margin = 13, 
+                          colScheme = "Greens",
+                          distMethod = "pearson")
+savePlotAsImage(file = "dba.map.svg", 
+                format = "svg", 
+                width = 600, 
+                height = 650)
+#no correlation
+dba.map = dba.plotHeatmap(DBA, 
+                          attributes = DBA_ID, 
+                          th= 0.05, 
+                          bUsePval = FALSE, 
+                          sortFun = TRUE,
+                          correlations = FALSE, 
+                          olPlot = DBA_COR,
+                          rowSideCols = c("dark blue","dark green","dark red"),
+                          colSideCols = c("dark blue","dark green","dark red"),
+                          margin = 13, 
+                          colScheme = "Greens",
+                          distMethod = "pearson")
+savePlotAsImage(file = "dba.map.nocor.svg", 
+                format = "svg", 
+                width = 600, 
+                height = 650)
+#PCA
+dba.pca = dba.plotPCA(DBA = DBA,
+                      attributes = DBA_ID,
+                      th = 0.05,
+                      bUsePval = FALSE,
+                      cor = TRUE,
+                      b3D = FALSE,
+                      vColors = c("dark blue","dark green","dark red", "black", "dark grey"),
+                      dotSize = 1.5,
+                      labelSize = 2)
+savePlotAsImage(file = "dba.pca.svg", 
+                format = "svg", 
+                width = 600, 
+                height = 650)
+
+#normalize to read count, 
+                     #score = DBA_SCORE_TMM_READS_EFFECTIVE
+DBA.count = dba.count(DBA, 
+                      bUseSummarizeOverlaps = FALSE, 
+                      bRemoveDuplicates = TRUE,
+                      mapQCth = 30, 
+                      bCorPlot = TRUE, 
+                      bParallel = TRUE, 
+                      minOverlap = 2)
+savePlotAsImage(file = "dba.count.bCorPlot.svg", 
+                format = "svg", 
+                width = 600, 
+                height = 650)
+#plot correlation of normalized reads
+#heatmap
+count.map = dba.plotHeatmap(DBA.count,
+                            attributes = DBA_ID,
+                            th = 0.05, 
+                            bUsePval = FALSE,
+                            sortFun = TRUE, 
+                            correlations = TRUE,
+                            olPlot = DBA_COR,
+                            rowSideCols = c("dark blue","dark green","dark red"),
+                            colSideCols = c("dark blue","dark green","dark red"),
+                            margin = 13, 
+                            colScheme = "Greens",
+                            distMethod = "pearson")
+savePlotAsImage(file = "dba.count.svg",
+                format = "svg", 
+                width = 600, 
+                height = 650)
+#no correlation
+count.nocor.map = dba.plotHeatmap(DBA.count,
+                            attributes = DBA_ID,
+                            th = 0.05, 
+                            bUsePval = FALSE,
+                            sortFun = TRUE, 
+                            correlations = FALSE,
+                            olPlot = DBA_COR,
+                            rowSideCols = c("dark blue","dark green","dark red"),
+                            colSideCols = c("dark blue","dark green","dark red"),
+                            margin = 13, 
+                            colScheme = "Greens",
+                            distMethod = "pearson")
+savePlotAsImage(file = "dba.count.nocor.svg",
+                format = "svg", 
+                width = 600, 
+                height = 650)
+#PCA
+dba.pca = dba.plotPCA(DBA = DBA.count,
+                      attributes = DBA_ID,
+                      th = 0.05,
+                      bUsePval = FALSE,
+                      cor = TRUE,
+                      b3D = FALSE,
+                      vColors = c("dark blue","dark green","dark red", "black", "dark grey"),
+                      dotSize = 1.5,
+                      labelSize = 2)
+savePlotAsImage(file = "dba.count.pca.svg", 
+                format = "svg", 
+                width = 600, 
+                height = 650)
+
+#Perform differential analaysis 
+#set contrast to condition 
+DBA.contrast.condition= dba.contrast(DBA.count,
+                           categories = DBA_CONDITION, 
+                           group1 = DBA.count$masks$Primary, 
+                           group2 = DBA.count$masks$Cancer, 
+                           name1 = "Primary", 
+                           name2 = "Cancer")
+
+#perform differential analysis 
+DBA.analyze.condition = dba.analyze(DBA.contrast.condition, 
+                                    method = DBA_DESEQ2, 
+                                    bSubControl = TRUE, 
+                                    bFullLibrarySize = TRUE, 
+                                    filter = TRUE, 
+                                    filterFun = "max", 
+                                    bTagwise = FALSE, 
+                                    bCorPlot = TRUE, 
+                                    bParallel = TRUE, 
+                                    bReduceObjects = FALSE)
+#plots
+savePlotAsImage(file = "dba.analyze.bCor.svg", 
+                format = "svg", 
+                width = 600, 
+                height = 650)
+
+dba.analyze.condition.map = dba.plotHeatmap(DBA.analyze.condition,
+                                            attributes = DBA_ID,
+                                            th = 0.05, 
+                                            bUsePval = FALSE,
+                                            sortFun = TRUE, 
+                                            correlations = TRUE,
+                                            olPlot = DBA_COR,
+                                            rowSideCols = c("dark blue","dark green","dark red"),
+                                            colSideCols = c("dark blue","dark green","dark red"),
+                                            margin = 13,
+                                            colScheme = "Greens",
+                                            distMethod = "pearson") 
+savePlotAsImage(file = "dba.analyze.map.svg", 
+                format = "svg", 
+                width = 600, 
+                height = 650)
+#no correlation
+dba.analyze.condition.nocor.map = dba.plotHeatmap(DBA.analyze.condition,
+                                            attributes = DBA_ID,
+                                            th = 0.05, 
+                                            bUsePval = FALSE,
+                                            sortFun = TRUE, 
+                                            correlations = FALSE,
+                                            olPlot = DBA_COR,
+                                            rowSideCols = c("dark blue","dark green","dark red"),
+                                            colSideCols = c("dark blue","dark green","dark red"),
+                                            margin = 13,
+                                            colScheme = "Greens",
+                                            distMethod = "pearson") 
+savePlotAsImage(file = "dba.analyze.nocor.svg", 
+                format = "svg", 
+                width = 600, 
+                height = 650)
+
+#generate report
+DBA.report.condition =dba.report(DBA.analyze.condition,
+                                 method = DBA_DESEQ2, 
+                                 bUsePval = FALSE, 
+                                 bNormalized = TRUE, 
+                                 bCalled = TRUE, 
+                                 bCounts = TRUE, 
+                                 bCalledDetail = TRUE, 
+                                 bDB = TRUE, 
+                                 bNotDB = TRUE,
+                                 bGain = TRUE, 
+                                 bLoss = TRUE, 
+                                 file = "/DBA.report.csv", 
+                                 DataType = DBA_DATA_GRANGES)
+#correlation plots
+#condition only plots
+MA.plot = dba.plotMA(DBA.analyze.condition, 
+                     method = DBA_DESEQ2,
+                     th = 0.05,
+                     bUsePval = FALSE,
+                     fold = 0, 
+                     bNormalized = TRUE,
+                     factor = "CTCF", 
+                     bFlip = TRUE, 
+                     bXY = FALSE,
+                     dotSize = 0.5, 
+                     bSignificant = TRUE, 
+                     bSmooth = TRUE)
+savePlotAsImage(file = "dba.analyze.MAplot.svg", 
+                format = "svg", 
+                width = 600, 
+                height = 650)
+Scat.plot =  dba.plotMA(DBA.analyze.condition, 
+                     method = DBA_DESEQ2,
+                     th = 0.05,
+                     bUsePval = FALSE,
+                     fold = 0, 
+                     bNormalized = TRUE,
+                     factor = "CTCF", 
+                     bFlip = TRUE, 
+                     bXY = TRUE,
+                     dotSize = 0.5, 
+                     bSignificant = TRUE, 
+                     bSmooth = TRUE)
+savePlotAsImage(file = "dba.analyze.scatter.svg", 
+                format = "svg", 
+                width = 600, 
+                height = 650)
+
+Vol.plot = dba.plotVolcano(DBA.analyze.condition, 
+                           method = DBA_DESEQ2,
+                           th = 0.05, 
+                           bUsePval = FALSE, 
+                           fold = 0,
+                           factor = "CTCF", 
+                           bFlip = TRUE,
+                           dotSize = 0.5)
+savePlotAsImage(file = "dba.analyze.volcano.svg", 
+                format = "svg", 
+                width = 600, 
+                height = 650)
+
+box.plot = dba.plotBox(DBA.analyze.condition, 
+                       bNormalized = TRUE,
+                       fold = 0,
+                       dotSize = 0.5, 
+                       attribute = DBA_CONDITION)
+savePlotAsImage(file = "dba.analyze.boxplot.svg", 
+                format = "svg", 
+                width = 600, 
+                height = 650)
+
+#reporting
+DBA.report.condition.all =dba.report(DBA.analyze.condition,
+                                               method = DBA_DESEQ2, 
+                                               bUsePval = FALSE, 
+                                               bNormalized = TRUE, 
+                                               bCalled = TRUE, 
+                                               bCounts = TRUE, 
+                                               bCalledDetail = TRUE, 
+                                               bDB = TRUE, 
+                                               bNotDB = TRUE, 
+                                               bGain = TRUE, 
+                                               bLoss = TRUE, 
+                                               DataType = DBA_DATA_GRANGES)
+
+#Lost & gained sites, considering FDR threshold
+db.all = dba.report(DBA.analyze.condition, 
+                    method = DBA_DESEQ2, 
+                    th= 0.05, 
+                    bNormalized = TRUE,
+                    bCalled = TRUE, 
+                    bCounts = TRUE, 
+                    bCalledDetail = TRUE,
+                    bDB = TRUE,
+                    bNotDB = TRUE, 
+                    bGain = TRUE, 
+                    bLoss = TRUE, 
+                    DataType = DBA_DATA_FRAME)
+db.loss = dba.report(DBA.analyze.condition,
+                    method = DBA_DESEQ2,
+                    th= 0.05,
+                    bNormalized = TRUE,
+                    bCalled = TRUE,
+                    bCounts = TRUE,
+                    bCalledDetail = TRUE,
+                    bDB = TRUE,
+                    bNotDB = FALSE,
+                    bGain = FALSE,
+                    bLoss = TRUE,
+                    DataType = DBA_DATA_GRANGES)
+db.gain= dba.report(DBA.analyze.condition,
+                    method = DBA_DESEQ2,
+                    th= 0.05,
+                    bNormalized = TRUE,
+                    bCalled = TRUE,
+                    bCounts = TRUE,
+                    bCalledDetail = TRUE,
+                    bDB = TRUE,
+                    bNotDB = FALSE,
+                    bGain = TRUE,
+                    bLoss = FALSE,
+                    DataType = DBA_DATA_GRANGES)
+
+db.notdb = dba.report(DBA.analyze.condition,
+                    method = DBA_DESEQ2,
+                    th= 0.05,
+                    bNormalized = TRUE,
+                    bCalled = TRUE,
+                    bCounts = TRUE,
+                    bCalledDetail = TRUE,
+                    bDB = FALSE,
+                    bNotDB = TRUE,
+                    bGain = FALSE,
+                    bLoss = FALSE,
+                    DataType = DBA_DATA_GRANGES)
+```
+
+```{r File Outputs}
+library("ChIPpeakAnno", lib.loc="~/Library/R/3.5/library")
+library("ChIPseeker", lib.loc="~/Library/R/3.5/library")
+library("ChIPseeker", lib.loc="~/Library/R/3.5/library")
+library("rtracklayer", lib.loc="~/Library/R/3.5/library")
+library(clusterProfiler)
+library(org.Hs.eg.db)
+library(TxDb.Hsapiens.UCSC.hg38.knownGene)
+interesing_chrs = c("chr1","chr2","chr3","chr4","chr5","chr6","chr7","chr8","chr9","chr10"
+         ,"chr11","chr12","chr13","chr14","chr15","chr16","chr17","chr18","chr19","chr20"
+         ,"chr21","chr22","chrM","chrX","chrY")
+require(TxDb.Hsapiens.UCSC.hg38.knownGene)
+hg38 = TxDb.Hsapiens.UCSC.hg38.knownGene
+
+
+db.all.peaks = db.all[["peaks"]][[1]] #1 here is for All. See db.all
+db.gain.peaks = db.all[["peaks"]][[3]] #1 here is for Loss in Primary. See db.all
+db.loss.peaks = db.all[["peaks"]][[2]]#1 here is for Gain in Primary. See db.all
+db.notdb.peaks = as(db.all[["peaks"]][6], "data.frame")
+db.notdb.peaks = db.notdb.peaks[[1]]
+
+#export as csv
+write.csv(db.all.peaks, file = "db.all.csv", row.names=FALSE, quote = FALSE)
+write.csv(db.gain.peaks, file="db.gain.csv", row.names=FALSE, quote=FALSE)
+write.csv(db.loss.peaks, file="db.loss.csv", row.names=FALSE, quote=FALSE)
+write.csv(db.notdb.peaks, file = "db.notdb.csv", row.names=FALSE, quote=FALSE)
+
+#export as bed 
+db.all.bed = export.bed(db.all.peaks,"db.all.bed")
+db.loss.bed = export.bed(db.loss.peaks,"db.loss.bed")
+db.gain.bed = export.bed(db.gain.peaks,"db.gain.bed")
+db.notdb.bed = export.bed(db.notdb.peaks,"db.notdb.bed")
+
+
+```
+
+```{r Annotating Differential Peaks with ChiPAnnotator}
+
+library("ChIPpeakAnno", lib.loc="~/Library/R/3.5/library")
+library("ChIPseeker", lib.loc="~/Library/R/3.5/library")
+library("ChIPseeker", lib.loc="~/Library/R/3.5/library")
+library("rtracklayer", lib.loc="~/Library/R/3.5/library")
+library(clusterProfiler)
+library(org.Hs.eg.db)
+library(TxDb.Hsapiens.UCSC.hg38.knownGene)
+interesing_chrs = c("chr1","chr2","chr3","chr4","chr5","chr6","chr7","chr8","chr9","chr10"
+         ,"chr11","chr12","chr13","chr14","chr15","chr16","chr17","chr18","chr19","chr20"
+         ,"chr21","chr22","chrM","chrX","chrY")
+require(TxDb.Hsapiens.UCSC.hg38.knownGene)
+hg38 = TxDb.Hsapiens.UCSC.hg38.knownGene
+
+
+
+db.all.peaks = db.all[["peaks"]][[1]] #1 here is for All. See db.all
+db.gain.peaks = db.all[["peaks"]][[3]] #1 here is for Loss in Primary. See db.all
+db.loss.peaks = db.all[["peaks"]][[2]]#1 here is for Gain in Primary. See db.all
+db.notdb.peaks = as(db.all[["peaks"]][6], "data.frame")
+db.notdb.peaks = db.notdb.peaks[[1]]
+
+#export as csv
+write.csv(db.all.peaks, file = "db.all.csv", row.names=FALSE, quote = FALSE)
+write.csv(db.gain.peaks, file="db.gain.csv", row.names=FALSE, quote=FALSE)
+write.csv(db.loss.peaks, file="db.loss.csv", row.names=FALSE, quote=FALSE)
+write.csv(db.notdb.peaks, file = "db.notdb.csv", row.names=FALSE, quote=FALSE)
+
+#export as bed 
+db.all.bed = export.bed(db.all.peaks,"db.all.bed")
+db.loss.bed = export.bed(db.loss.peaks,"db.loss.bed")
+db.gain.bed = export.bed(db.gain.peaks,"db.gain.bed")
+db.notdb.bed = export.bed(db.notdb.peaks,"db.notdb.bed")
+
+#ChIPpeakAnno
+promoter <- getPromoters(TxDb=hg38, upstream=5000, downstream=5000)
+#annotating gained and lost sites using ChiPAnno
+db.all.anno = annotatePeak (peak = "db.all.bed",
+                            tssRegion=c(-5000, 5000), 
+                            TxDb=hg38, 
+                            annoDb="org.Hs.eg.db")
+db.all.upset= upsetplot(db.all.anno, 
+                         vennpie = TRUE)
+savePlotAsImage(file = "db.all.upset.svg", 
+                format = "svg", 
+                width = 600, 
+                height = 650)
+db.all.vennpie = vennpie(db.all.anno)
+savePlotAsImage(file = "db.all.vennpie.svg", 
+                format = "svg", 
+                width = 600, 
+                height = 650)
+
+
+db.loss.anno = annotatePeak ("db.loss.bed", 
+                             tssRegion=c(-5000, 5000), 
+                             TxDb=hg38, 
+                             annoDb="org.Hs.eg.db")
+db.loss.upset= upsetplot(db.loss.anno, 
+                         vennpie = TRUE)
+savePlotAsImage(file = "db.loss.upset.svg", 
+                format = "svg", 
+                width = 600, 
+                height = 650)
+db.loss.vennpie = vennpie(db.loss.anno)
+savePlotAsImage(file = "db.loss.vennpie.svg", 
+                format = "svg", 
+                width = 600, 
+                height = 650)
+db.gain.anno = annotatePeak ("db.gain.bed", 
+                             tssRegion=c(-5000, 5000), 
+                             TxDb=hg38, 
+                             annoDb="org.Hs.eg.db")
+db.gain.upset= upsetplot(db.gain.anno, 
+                         vennpie = TRUE)
+savePlotAsImage(file = "db.gain.upset.svg", 
+                format = "svg", 
+                width = 600, 
+                height = 650)
+db.gain.vennpie = vennpie(db.gain.anno)
+savePlotAsImage(file = "db.gain.vennpie.svg", 
+                format = "svg", 
+                width = 600, 
+                height = 650)
+db.notdb.anno = annotatePeak (peak = "db.notdb.bed",
+                            tssRegion=c(-5000, 5000), 
+                            TxDb=hg38, 
+                            annoDb="org.Hs.eg.db")
+db.notdb.upset= upsetplot(db.notdb.anno, 
+                         vennpie = TRUE)
+savePlotAsImage(file = "db.notdb.upset.svg", 
+                format = "svg", 
+                width = 600, 
+                height = 650)
+db.notdb.vennpie = vennpie(db.notdb.anno)
+savePlotAsImage(file = "db.notdb.vennpie.svg", 
+                format = "svg", 
+                width = 600, 
+                height = 650)
+
+#writing ChiPAnno files
+db.all.df = as(db.all.anno@anno, "data.frame")
+write.csv(db.all.df, file = "db.all.anno.csv", row.names=FALSE, quote=FALSE)
+db.gain.df = as(db.gain.anno@anno, "data.frame")
+write.csv(db.gain.df, file = "db.gain.anno.csv", row.names=FALSE, quote=FALSE)
+db.loss.df = as(db.loss.anno@anno, "data.frame")
+write.csv(db.loss.df, file = "db.loss.anno.csv", row.names=FALSE, quote=FALSE)
+db.notdb.df = as(db.notdb.anno@anno, "data.frame")
+write.csv(db.notdb.df, file = "db.notdb.anno.csv", row.names=FALSE, quote=FALSE)
+
+#tag maps for 5KB region
+db.all.tagmatrix = getTagMatrix("db.all.bed", 
+                                windows = promoter)
+db.all.heatmap= tagHeatmap(db.all.tagmatrix, 
+                           xlim=c(-5000,5000), 
+                           color = "orange", 
+                           xlab = "TSS", 
+                           title = "db.all")
+savePlotAsImage(file = "db.all.heatmap.svg", 
+                format = "svg", 
+                width = 600, 
+                height = 650)
+db.gain.tagmatrix = getTagMatrix("db.gain.bed", 
+                                 windows = promoter)
+db.gain.heatmap= tagHeatmap(db.gain.tagmatrix, 
+                            xlim=c(-5000,5000), 
+                            color = "red", 
+                            xlab = "TSS", 
+                            title = "db.gain")
+savePlotAsImage(file = "db.gain.heatmap.svg", 
+                format = "svg", 
+                width = 600, 
+                height = 650)
+db.loss.tagmatrix = getTagMatrix("db.loss.bed", 
+                                 windows = promoter)
+db.loss.heatmap= tagHeatmap(db.loss.tagmatrix, 
+                            xlim=c(-5000,5000), 
+                            color = "dark green", 
+                            xlab = "TSS", 
+                            title = "db.loss")
+savePlotAsImage(file = "db.loss.heatmap.svg", 
+                format = "svg", 
+                width = 600, 
+                height = 650)
+db.notdb.tagmatrix = getTagMatrix("db.notdb.bed", 
+                                 windows = promoter)
+db.notdb.heatmap= tagHeatmap(db.notdb.tagmatrix, 
+                            xlim=c(-5000,5000), 
+                            color = "dark green", 
+                            xlab = "TSS", 
+                            title = "db.notdb")
+savePlotAsImage(file = "db.notdb.heatmap.svg", 
+                format = "svg", 
+                width = 600, 
+                height = 650)
+
+
+```
+
+```{r getfasta files from Diffbind Output}
+
+library("bedr", lib.loc="~/Library/R/3.5/library")
+library("plyranges", lib.loc="~/Library/R/3.5/library")
+
+#change filename here
+x = read_bed("db.notdb.bed")
+x.df= as.data.frame(x)
+
+x = x.df[-c(4,6,7)]
+colnames(x)
+colnames(x)[colnames(x)=="seqnames"] = "chrom"
+colnames(x)[colnames(x)=="start"] = "chromStart"
+colnames(x)[colnames(x)=="end"] = "chromEnd"
+
+#change filename here
+write.table(x,
+            file = "db.notdb.p.bed",
+            row.names = F,
+            col.names = F,
+            sep = "\t",
+            quote = F)
+
+x.val = is.valid.region(x, 
+                        check.chr = TRUE, 
+                        throw.error = FALSE, 
+                        verbose = TRUE)
+x$chrom = as.character(x$chrom)
+x = bedr.sort.region(x)
+x.fasta = get.fasta(x,  
+                    fasta = "/Users/lollie/Documents/2018/MhlangaLab/Projects/PhD/Local_Data/Genomes/hg38/hg38.fa", 
+                    bed12 = FALSE, 
+                    strand = TRUE, 
+                    output.fasta = TRUE, 
+                    check.chr = TRUE, 
+                    check.valid = TRUE, 
+                    check.sort = TRUE, 
+                    check.merge = TRUE, 
+                    verbose = TRUE)
+#change filename here
+write.table(x.fasta, 
+            file = "db.notdb.fa", 
+            row.names = F, 
+            col.names = F,
+            sep = "\t", 
+            quote = F)
+```
+
